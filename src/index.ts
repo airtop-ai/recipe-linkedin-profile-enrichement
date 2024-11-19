@@ -12,7 +12,7 @@ dotenv.config();
  * Setting the BATCH_SIZE to 1 will process all profiles in parallel.
  * Setting the BATCH_SIZE to 2 will generate batches of 2 profiles that each run sequentially.
  */
-const BATCH_SIZE = 2;
+const BATCH_SIZE = 1;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
