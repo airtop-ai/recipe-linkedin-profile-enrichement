@@ -12,7 +12,9 @@ dotenv.config();
  * Setting the BATCH_SIZE to 1 will process all profiles in parallel.
  * Setting the BATCH_SIZE to 2 will generate batches of 2 profiles that each run sequentially.
  */
-const BATCH_SIZE = 1;
+const BATCH_SIZE = 2;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
 
 interface UserProfile {
   firstName: string;
@@ -39,9 +41,11 @@ const fetchProfilesFromFile = async () => {
 
   const data = fs.readFileSync(filePath, 'utf8');
   const lines = data.split('\n');
-  // Skip the header row
+
+  // Skip the header row and filter out empty lines
   const profiles = lines
     .slice(1)
+    .filter(line => line.trim())
     .map(line => {
       const [email, firstName, lastName] = line.split(',');
       return {
@@ -64,24 +68,32 @@ const generateProfilesWithSearchQueries = (profiles: UserProfile[]): ProfileWith
 }
 
 const searchForLinkedInProfile = async (session: ExternalSessionWithConnectionInfo, window: WindowId, client: AirtopClient, profile: ProfileWithQuery): Promise<string | null> => {
-  try {
-    client.windows.loadUrl(session.id, window.windowId, {
-      url: profile.query,
-    })
-    console.log(`Searching for ${profile.firstName} ${profile.lastName} ${profile.email} on LinkedIn`);
-    const result = await client.windows.pageQuery(session.id, window.windowId, {
-      prompt: `You are tasked with retrieving a person's LinkedIn profile URL. Please locate the LinkedIn profile for the specified individual and return only the URL. 
-      LinkedIn profile URLs begin with https://www.linkedin.com/in/ so use that to identify the profile. There may be profiles with country based subdomains like https://nl.linkedin.com/in/ that you should also use.
-      If there are multiple links, return the one that most closely matches the profile based on the email domain and the name. 
-      Do not return any other text than the URL.
-      Do not return any urls corresponding to posts that may begin with https://www.linkedin.com/posts/
-      If you are unable to find the profile, return 'Error'`
-    });
-    return result.data.modelResponse;
-  } catch (error) {
-    console.error("Error querying the page for profile", profile.email, error);
-    return null;
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await client.windows.loadUrl(session.id, window.windowId, {
+        url: profile.query,
+      })
+      console.log(`Searching for ${profile.firstName} ${profile.lastName} ${profile.email} on LinkedIn`);
+      const result = await client.windows.pageQuery(session.id, window.windowId, {
+        prompt: `You are tasked with retrieving a person's LinkedIn profile URL. Please locate the LinkedIn profile for the specified individual and return only the URL. 
+        LinkedIn profile URLs begin with https://www.linkedin.com/in/ so use that to identify the profile. There may be profiles with country based subdomains like https://nl.linkedin.com/in/ that you should also use.
+        If there are multiple links, return the one that most closely matches the profile based on the email domain and the name. 
+        Do not return any other text than the URL.
+        Do not return any urls corresponding to posts that may begin with https://www.linkedin.com/posts/
+        If you are unable to find the profile, return 'Error'`
+      });
+      return result.data.modelResponse;
+    } catch (error) {
+      if (attempt === MAX_RETRIES) {
+        console.error(`Failed to find profile after ${MAX_RETRIES} attempts:`, profile.email, error);
+        return null;
+      }
+      console.warn(`Attempt ${attempt} failed, retrying after delay...`);
+      await delay(RETRY_DELAY_MS);
+    }
   }
+  return null;
 }
 
 const runSequentialBatch = async (client: AirtopClient, profiles: ProfileWithQuery[], batchIndex: number) => {
