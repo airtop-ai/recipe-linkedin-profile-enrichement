@@ -129,7 +129,14 @@ const runBatchesInParallel = async (client: AirtopClient, batches: ProfileWithQu
 
 const saveProfilesToFile = (profiles: ProfileWithLinkedInProfile[]) => {
   const projectRoot = path.resolve(__dirname, '../');
-  const filePath = path.join(projectRoot, 'output', 'profiles_with_linked_in_profiles.csv');
+  const outputDir = path.join(projectRoot, 'output');
+  const filePath = path.join(outputDir, 'profiles_with_linked_in_profiles.csv');
+  
+  // Create output directory if it doesn't exist
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
   const csvHeaders = ['email', 'firstName', 'lastName', 'linkedInProfile'];
   const csvRows = profiles.map(profile => [
     profile.email,
@@ -143,7 +150,6 @@ const saveProfilesToFile = (profiles: ProfileWithLinkedInProfile[]) => {
   ].join('\n');
   fs.writeFileSync(filePath, csvContent);
 }
-
 const main = async () => {
   const apiKey = process.env.AIRTOP_API_KEY;
   if (!apiKey) {
