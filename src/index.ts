@@ -1,10 +1,18 @@
 import { AirtopClient } from "@airtop/sdk";
-import type { ExternalSessionWithConnectionInfo, WindowId } from "@airtop/sdk/api";
+import type { ExternalSessionWithConnectionInfo, SessionResponse, WindowId, WindowIdResponse } from "@airtop/sdk/api";
 import * as fs from 'node:fs';
 import path from "node:path";
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+/**
+ * This recipe is designed to process a large number of profiles in parallel.
+ * This variable controls the number of profiles to process in each batch, which is useful for limiting the number of concurrent sessions.
+ * Setting the BATCH_SIZE to 1 will process all profiles in parallel.
+ * Setting the BATCH_SIZE to 2 will generate batches of 2 profiles that each run sequentially.
+ */
+const BATCH_SIZE = 1;
 
 interface UserProfile {
   firstName: string;
@@ -71,14 +79,30 @@ const searchForLinkedInProfile = async (session: ExternalSessionWithConnectionIn
     });
     return result.data.modelResponse;
   } catch (error) {
-    console.error("Error with profile", profile.email, error);
+    console.error("Error querying the page for profile", profile.email, error);
     return null;
   }
 }
 
-const runSequentialBatch = async (client: AirtopClient, profiles: ProfileWithQuery[]) => {
-  const session = await client.sessions.create();
-  const window = await client.windows.create(session.data.id);
+const runSequentialBatch = async (client: AirtopClient, profiles: ProfileWithQuery[], batchIndex: number) => {
+  console.log(`Running batch ${batchIndex}`);
+  let session: SessionResponse;
+  let window: WindowIdResponse;
+  try {
+    session = await client.sessions.create();
+  } catch (error) {
+    console.error("Error creating session", error);
+    return [];
+  }
+
+  try {
+    window = await client.windows.create(session.data.id);
+  } catch (error) {
+    console.error("Error creating window", error);
+    return [];
+  }
+
+  console.log("Created session and window for batch", batchIndex);
 
   const profilesWithLinkedInProfiles: ProfileWithLinkedInProfile[] = [];
   for (const profile of profiles) {
@@ -98,7 +122,7 @@ const runSequentialBatch = async (client: AirtopClient, profiles: ProfileWithQue
 }
 
 const runBatchesInParallel = async (client: AirtopClient, batches: ProfileWithQuery[][]) => {
-  const promises = batches.map(batch => runSequentialBatch(client, batch));
+  const promises = batches.map((batch, index) => runSequentialBatch(client, batch, index));
   const results = await Promise.all(promises);
   return results.flat();
 }
@@ -129,12 +153,11 @@ const main = async () => {
   const client = new AirtopClient({ apiKey });
   const profiles = await fetchProfilesFromFile();
   const profilesWithQueries = generateProfilesWithSearchQueries(profiles);
-  const batchSize = 2;
   const batches: ProfileWithQuery[][] = [];
 
   // Split the profiles into batches
-  for (let i = 0; i < profilesWithQueries.length; i += batchSize) {
-    batches.push(profilesWithQueries.slice(i, i + batchSize));
+  for (let i = 0; i < profilesWithQueries.length; i += BATCH_SIZE) {
+    batches.push(profilesWithQueries.slice(i, i + BATCH_SIZE));
   }
 
   const profilesWithLinkedInProfiles = await runBatchesInParallel(client, batches);
