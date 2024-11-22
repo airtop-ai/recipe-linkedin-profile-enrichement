@@ -65,7 +65,7 @@ const generateProfilesWithSearchQueries = (profiles: UserProfile[]): ProfileWith
 
 const searchForLinkedInProfile = async (session: ExternalSessionWithConnectionInfo, window: WindowId, client: AirtopClient, profile: ProfileWithQuery): Promise<string | null> => {
   try {
-    client.windows.loadUrl(session.id, window.windowId, {
+    await client.windows.loadUrl(session.id, window.windowId, {
       url: profile.query,
     })
     console.log(`Searching for ${profile.firstName} ${profile.lastName} ${profile.email} on LinkedIn`);
